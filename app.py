@@ -1,11 +1,9 @@
-import os
-
 import streamlit as st
-from dotenv import load_dotenv
 
 from services.monday_client import (
     get_board_items,
-    board_to_dataframe
+    board_to_dataframe,
+    get_config_value
 )
 
 from analytics.deals import (
@@ -29,13 +27,6 @@ from agent.agent import (
 
 
 # ============================================================
-# ENVIRONMENT
-# ============================================================
-
-load_dotenv()
-
-
-# ============================================================
 # PAGE CONFIG
 # ============================================================
 
@@ -55,35 +46,69 @@ def format_money(value):
     if value is None:
         return "₹0"
 
-    value = float(value)
+    try:
+
+        value = float(
+            value
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return "Unknown"
+
 
     if abs(value) >= 10_000_000:
-        return f"₹{value / 10_000_000:.2f} Cr"
+
+        return (
+            f"₹"
+            f"{value / 10_000_000:.2f} Cr"
+        )
+
 
     if abs(value) >= 100_000:
-        return f"₹{value / 100_000:.2f} Lakh"
+
+        return (
+            f"₹"
+            f"{value / 100_000:.2f} Lakh"
+        )
+
 
     return f"₹{value:,.2f}"
 
 
 # ============================================================
-# LOAD DEALS FROM MONDAY.COM
+# LOAD DEALS
 # ============================================================
 
-@st.cache_data(ttl=60)
+@st.cache_data(
+    ttl=60
+)
 def load_deals():
 
-    board_id = os.getenv(
+    board_id = get_config_value(
         "DEALS_BOARD_ID"
     )
+
+
+    if not board_id:
+
+        raise RuntimeError(
+            "DEALS_BOARD_ID is missing."
+        )
+
 
     raw_data = get_board_items(
         board_id
     )
 
+
     df = board_to_dataframe(
         raw_data
     )
+
 
     return prepare_deals(
         df
@@ -91,23 +116,35 @@ def load_deals():
 
 
 # ============================================================
-# LOAD WORK ORDERS FROM MONDAY.COM
+# LOAD WORK ORDERS
 # ============================================================
 
-@st.cache_data(ttl=60)
+@st.cache_data(
+    ttl=60
+)
 def load_work_orders():
 
-    board_id = os.getenv(
+    board_id = get_config_value(
         "WORK_ORDERS_BOARD_ID"
     )
+
+
+    if not board_id:
+
+        raise RuntimeError(
+            "WORK_ORDERS_BOARD_ID is missing."
+        )
+
 
     raw_data = get_board_items(
         board_id
     )
 
+
     df = board_to_dataframe(
         raw_data
     )
+
 
     return prepare_work_orders(
         df
@@ -123,18 +160,83 @@ st.title(
 )
 
 st.caption(
-    "Live business intelligence from Deals and Work Orders"
+    "Live business intelligence from "
+    "Deals and Work Orders"
 )
 
 
 # ============================================================
-# LOAD DATA
+# CHECK CONFIGURATION
+# ============================================================
+
+token = get_config_value(
+    "MONDAY_API_TOKEN"
+)
+
+deals_board_id = get_config_value(
+    "DEALS_BOARD_ID"
+)
+
+work_orders_board_id = (
+    get_config_value(
+        "WORK_ORDERS_BOARD_ID"
+    )
+)
+
+
+missing_config = []
+
+
+if not token:
+
+    missing_config.append(
+        "MONDAY_API_TOKEN"
+    )
+
+
+if not deals_board_id:
+
+    missing_config.append(
+        "DEALS_BOARD_ID"
+    )
+
+
+if not work_orders_board_id:
+
+    missing_config.append(
+        "WORK_ORDERS_BOARD_ID"
+    )
+
+
+if missing_config:
+
+    st.error(
+        "Missing configuration: "
+        +
+        ", ".join(
+            missing_config
+        )
+    )
+
+
+    st.info(
+        "When running locally, add these values "
+        "to `.env`. When deployed on Streamlit "
+        "Cloud, add them under App → Settings → Secrets."
+    )
+
+
+    st.stop()
+
+
+# ============================================================
+# LOAD MONDAY DATA
 # ============================================================
 
 try:
 
     with st.spinner(
-        "Loading data from monday.com..."
+        "Loading live monday.com data..."
     ):
 
         deals_df = load_deals()
@@ -143,27 +245,41 @@ try:
             load_work_orders()
         )
 
+
 except Exception as error:
 
     st.error(
         "Could not load monday.com data."
     )
 
-    st.exception(error)
+
+    st.error(
+        str(error)
+    )
+
+
+    st.info(
+        "If this works locally but not on "
+        "Streamlit Cloud, check the values in "
+        "App Settings → Secrets."
+    )
+
 
     st.stop()
 
 
 # ============================================================
-# CONNECTION STATUS
+# CONNECTION STATUS + REFRESH
 # ============================================================
 
-col1, col2 = st.columns(
-    [4, 1]
+status_col, refresh_col = (
+    st.columns(
+        [4, 1]
+    )
 )
 
 
-with col1:
+with status_col:
 
     st.success(
         f"🟢 Connected to monday.com | "
@@ -172,7 +288,7 @@ with col1:
     )
 
 
-with col2:
+with refresh_col:
 
     if st.button(
         "🔄 Refresh Data",
@@ -188,11 +304,13 @@ with col2:
 # TABS
 # ============================================================
 
-chat_tab, dashboard_tab = st.tabs(
-    [
-        "💬 Ask the BI Agent",
-        "📊 Dashboard"
-    ]
+chat_tab, dashboard_tab = (
+    st.tabs(
+        [
+            "💬 Ask the BI Agent",
+            "📊 Dashboard"
+        ]
+    )
 )
 
 
@@ -206,15 +324,16 @@ with chat_tab:
         "Ask a business question"
     )
 
+
     st.write(
-        "Ask questions about sales pipeline, "
+        "Ask about sales pipeline, sectors, "
         "work orders, billing, collections, "
-        "delays, sectors, or data quality."
+        "delays, or data quality."
     )
 
 
     # --------------------------------------------------------
-    # SAMPLE QUESTIONS
+    # EXAMPLE QUESTIONS
     # --------------------------------------------------------
 
     with st.expander(
@@ -226,12 +345,13 @@ with chat_tab:
 - How much active pipeline do we have?
 - How is the renewables pipeline looking?
 - What's our pipeline this quarter?
+- What's our pipeline this month?
 - Which sectors have the largest pipeline?
 - How much money have we collected?
 - How much is receivable?
 - How much have we billed?
 - How are our work orders doing?
-- Which work orders are delayed?
+- Which projects are behind schedule?
 - What data quality issues should leadership know about?
 - Prepare a leadership update.
 """
@@ -239,27 +359,33 @@ with chat_tab:
 
 
     # --------------------------------------------------------
-    # CHAT HISTORY
+    # SESSION CHAT HISTORY
     # --------------------------------------------------------
 
-    if "messages" not in st.session_state:
+    if (
+        "messages"
+        not in st.session_state
+    ):
 
         st.session_state.messages = [
 
             {
-                "role": "assistant",
+                "role":
+                    "assistant",
 
                 "content":
-                    "Hello! I'm your Business Intelligence Agent. "
-                    "Ask me about pipeline, sales, work orders, "
-                    "billing, collections, delays, or data quality."
+                    "Hello! I'm your Business "
+                    "Intelligence Agent. Ask me about "
+                    "pipeline, work orders, billing, "
+                    "collections, delays, sectors, "
+                    "or data quality."
             }
 
         ]
 
 
     # --------------------------------------------------------
-    # DISPLAY PREVIOUS MESSAGES
+    # DISPLAY CHAT HISTORY
     # --------------------------------------------------------
 
     for message in (
@@ -267,11 +393,15 @@ with chat_tab:
     ):
 
         with st.chat_message(
-            message["role"]
+            message[
+                "role"
+            ]
         ):
 
             st.markdown(
-                message["content"]
+                message[
+                    "content"
+                ]
             )
 
 
@@ -286,16 +416,17 @@ with chat_tab:
 
     if question:
 
-        # Save user message
         st.session_state.messages.append(
             {
-                "role": "user",
-                "content": question
+                "role":
+                    "user",
+
+                "content":
+                    question
             }
         )
 
 
-        # Display user message
         with st.chat_message(
             "user"
         ):
@@ -305,13 +436,12 @@ with chat_tab:
             )
 
 
-        # Generate answer
         with st.chat_message(
             "assistant"
         ):
 
             with st.spinner(
-                "Analyzing monday.com data..."
+                "Analyzing live monday.com data..."
             ):
 
                 try:
@@ -327,8 +457,9 @@ with chat_tab:
                 except Exception as error:
 
                     answer = (
-                        "I encountered an error while "
-                        f"analysing the data: {error}"
+                        "I encountered an error "
+                        "while analysing the data:\n\n"
+                        f"`{error}`"
                     )
 
 
@@ -337,31 +468,38 @@ with chat_tab:
             )
 
 
-        # Save assistant answer
         st.session_state.messages.append(
             {
-                "role": "assistant",
-                "content": answer
+                "role":
+                    "assistant",
+
+                "content":
+                    answer
             }
         )
 
 
     # --------------------------------------------------------
-    # LEADERSHIP UPDATE BUTTON
+    # BUTTONS
     # --------------------------------------------------------
 
     st.divider()
 
-    col1, col2 = st.columns(
-        [1, 4]
+
+    button_col1, button_col2 = (
+        st.columns(
+            [1, 4]
+        )
     )
 
 
-    with col1:
+    with button_col1:
 
-        leadership_button = st.button(
-            "📋 Leadership Update",
-            width="stretch"
+        leadership_button = (
+            st.button(
+                "📋 Leadership Update",
+                width="stretch"
+            )
         )
 
 
@@ -373,29 +511,33 @@ with chat_tab:
             work_orders_df
         )
 
+
         st.session_state.messages.append(
             {
-                "role": "user",
+                "role":
+                    "user",
+
                 "content":
                     "Prepare a leadership update"
             }
         )
 
+
         st.session_state.messages.append(
             {
-                "role": "assistant",
-                "content": answer
+                "role":
+                    "assistant",
+
+                "content":
+                    answer
             }
         )
+
 
         st.rerun()
 
 
-    # --------------------------------------------------------
-    # CLEAR CHAT
-    # --------------------------------------------------------
-
-    with col2:
+    with button_col2:
 
         if st.button(
             "🗑️ Clear Chat"
@@ -404,14 +546,16 @@ with chat_tab:
             st.session_state.messages = [
 
                 {
-                    "role": "assistant",
+                    "role":
+                        "assistant",
 
                     "content":
-                        "Chat cleared. What would you "
-                        "like to know?"
+                        "Chat cleared. What would "
+                        "you like to know?"
                 }
 
             ]
+
 
             st.rerun()
 
@@ -437,7 +581,9 @@ with dashboard_tab:
 
 
     col1, col2, col3, col4 = (
-        st.columns(4)
+        st.columns(
+            4
+        )
     )
 
 
@@ -555,7 +701,9 @@ with dashboard_tab:
 
 
     col1, col2, col3, col4 = (
-        st.columns(4)
+        st.columns(
+            4
+        )
     )
 
 
@@ -592,7 +740,9 @@ with dashboard_tab:
 
 
     col1, col2, col3 = (
-        st.columns(3)
+        st.columns(
+            3
+        )
     )
 
 
@@ -635,7 +785,9 @@ with dashboard_tab:
 
 
     col1, col2, col3 = (
-        st.columns(3)
+        st.columns(
+            3
+        )
     )
 
 
@@ -779,11 +931,15 @@ with dashboard_tab:
 
     st.metric(
         "Potentially Delayed Work Orders",
-        len(delayed)
+        len(
+            delayed
+        )
     )
 
 
-    if len(delayed) > 0:
+    if len(
+        delayed
+    ) > 0:
 
         columns = [
             "Item Name",
@@ -800,14 +956,17 @@ with dashboard_tab:
 
             for column in columns
 
-            if column in delayed.columns
+            if column
+            in delayed.columns
 
         ]
 
 
-        delayed_display = delayed[
-            existing_columns
-        ].copy()
+        delayed_display = (
+            delayed[
+                existing_columns
+            ].copy()
+        )
 
 
         delayed_display = (
@@ -850,7 +1009,9 @@ with dashboard_tab:
 
 
     col1, col2, col3 = (
-        st.columns(3)
+        st.columns(
+            3
+        )
     )
 
 
@@ -878,8 +1039,10 @@ with dashboard_tab:
     )
 
 
-    col1, col2 = st.columns(
-        2
+    col1, col2 = (
+        st.columns(
+            2
+        )
     )
 
 
@@ -904,7 +1067,7 @@ with dashboard_tab:
 Missing financial values are treated as unknown,
 not as zero.
 
-Financial figures shown above represent known values
-from available records.
+Financial figures represent known values from
+available monday.com records.
 """
     )
