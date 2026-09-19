@@ -11,7 +11,7 @@ answers through a Streamlit interface.
 
 Add the deployed Streamlit URL here:
 
-`https://YOUR-APP.streamlit.app`
+`https://monday-bi-agent-akshayraoaroor.streamlit.app/`
 
 ---
 
